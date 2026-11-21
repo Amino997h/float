@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ar" dir="ltr">
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --bg-tabstrip: #dee1e6;
+    --bg-toolbar: #ffffff;
+    --tab-active-bg: #ffffff;
+    --tab-inactive-hover: #e8eaed;
+    --text-primary: #1f1f1f;
+    --text-secondary: #474747;
+    --omnibox-bg: #f1f3f4;
+    --omnibox-focus-bg: #ffffff;
+    --border-color: #dadce0;
+    --icon-color: #5f6368;
+    --icon-hover-bg: #f1f3f4;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  body {
+    height: 108px;
+    background-color: var(--bg-tabstrip);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+  }
+
+  /* --- Top Tabstrip (44px) --- */
+  .tabstrip {
+    height: 44px;
+    display: flex;
+    align-items: flex-end;
+    padding: 0 10px;
+    position: relative;
+    -webkit-app-region: drag;
+  }
+
+  .tabs-wrapper {
+    display: flex;
+    align-items: flex-end;
+    height: 100%;
+    gap: 4px;
+    max-width: calc(100vw - 160px);
+    overflow: hidden;
+    -webkit-app-region: no-drag;
+  }
+
+  .tab {
+    height: 36px;
+    width: 220px;
+    min-width: 120px;
+    background: transparent;
+    border-radius: 8px 8px 0 0;
+    display: flex;
+    align-items: center;
+    padding: 0 10px 0 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    position: relative;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .tab:hover:not(.active) {
+    background-color: var(--tab-inactive-hover);
+  }
+
+  .tab.active {
+    background-color: var(--tab-active-bg);
+    color: var(--text-primary);
+    font-weight: 500;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+  }
+
+  .tab-favicon {
+    width: 16px;
+    height: 16px;
+    margin-right: 8px;
+    flex-shrink: 0;
+    border-radius: 2px;
+  }
+
+  .tab-title {
+    flex-grow: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 12px;
+    line-height: 1.2;
+  }
+
+  .tab-close {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 6px;
+    color: var(--icon-color);
+    font-size: 11px;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .tab-close:hover {
+    background-color: #dadce0;
+    color: #000;
+  }
+
+  .btn-new-tab {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    margin-left: 6px;
+    margin-bottom: 3px;
+    color: var(--icon-color);
+    transition: background 0.15s;
+    -webkit-app-region: no-drag;
+    flex-shrink: 0;
+  }
+
+  .btn-new-tab:hover {
+    background-color: #d2d5d9;
+    color: #000;
+  }
+
+  /* Window Controls (Minimize, Maximize, Close) */
+  .win-controls {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding-right: 6px;
+    -webkit-app-region: no-drag;
+  }
+
+  .win-btn {
+    width: 46px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #444746;
+    transition: background 0.1s;
+  }
+
+  .win-btn:hover {
+    background-color: #d2d5d9;
+    color: #000;
+  }
+
+  .win-btn.close:hover {
+    background-color: #e81123;
+    color: #fff;
+  }
+
+  /* --- Navigation Toolbar (50px) --- */
+  .toolbar {
+    height: 50px;
+    background-color: var(--bg-toolbar);
+    display: flex;
+    align-items: center;
+    padding: 0 16px 0 10px;
+    gap: 4px;
+    border-bottom: 1px solid #d0d0d0;
+  }
+
+  .nav-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--icon-color);
+    transition: background 0.15s, color 0.15s;
+    flex-shrink: 0;
+  }
+
+  .nav-btn:hover {
+    background-color: var(--icon-hover-bg);
+    color: var(--text-primary);
+  }
+
+  .nav-btn svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+  }
+
+  /* Chrome Omnibox Capsule */
+  .omnibox {
+    flex-grow: 1;
+    height: 32px;
+    background-color: var(--omnibox-bg);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    margin: 0 8px;
+    transition: background 0.15s, box-shadow 0.15s;
+    border: 1px solid transparent;
+  }
+
+  .omnibox:focus-within {
+    background-color: var(--omnibox-focus-bg);
+    box-shadow: 0 1px 6px rgba(32,33,36,0.28);
+    border-color: #dadce0;
+  }
+
+  .omnibox-lock {
+    width: 16px;
+    height: 16px;
+    margin-right: 8px;
+    color: #5f6368;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .omnibox-lock svg {
+    width: 14px;
+    height: 14px;
+    fill: currentColor;
+  }
+
+  .omnibox-input {
+    width: 100%;
+    height: 100%;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 13.5px;
+    color: var(--text-primary);
+  }
+
+  .action-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px;
+    height: 28px;
+    border-radius: 14px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    color: #444746;
+    transition: background 0.15s;
+    flex-shrink: 0;
+  }
+
+  .action-btn:hover {
+    background-color: var(--icon-hover-bg);
+    color: var(--text-primary);
+  }
+
+  .action-btn svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+  }
+</style>
+</head>
+<body>
+
+  <!-- Chrome Tabstrip -->
+  <div class="tabstrip">
+    <div style="display:flex;align-items:center;padding:0 6px 4px 4px;-webkit-app-region:no-drag;">
+      <img src="app.png" style="width:20px;height:20px;border-radius:4px;object-fit:cover;" alt="Float" title="Float Browser">
+    </div>
+
+    <div class="tabs-wrapper" id="tabs-wrapper"></div>
+
+    <div class="btn-new-tab" onclick="emit('TAB_NEW')" title="New tab">
+      <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+    </div>
+
+    <!-- Window Controls (Minimize, Maximize, Close) -->
+    <div class="win-controls">
+      <div class="win-btn" onclick="emit('WIN_MIN')" title="Minimize">
+        <svg viewBox="0 0 10 10" width="10" height="10"><path fill="currentColor" d="M0,5 L10,5 L10,6 L0,6 Z"/></svg>
+      </div>
+      <div class="win-btn" onclick="emit('WIN_MAX')" title="Maximize">
+        <svg viewBox="0 0 10 10" width="10" height="10"><path fill="none" stroke="currentColor" stroke-width="1" d="M1.5,1.5 L8.5,1.5 L8.5,8.5 L1.5,8.5 Z"/></svg>
+      </div>
+      <div class="win-btn close" onclick="emit('WIN_CLOSE')" title="Close">
+        <svg viewBox="0 0 10 10" width="10" height="10"><path fill="currentColor" d="M1,0 L5,4 L9,0 L10,1 L6,5 L10,9 L9,10 L5,6 L1,10 L0,9 L4,5 L0,1 Z"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chrome Navigation Toolbar -->
+  <div class="toolbar">
+    <!-- Back -->
+    <div class="nav-btn" onclick="emit('BACK')" title="Back">
+      <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+    </div>
+    <!-- Forward -->
+    <div class="nav-btn" onclick="emit('FORWARD')" title="Forward">
+      <svg viewBox="0 0 24 24"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg>
+    </div>
+    <!-- Refresh -->
+    <div class="nav-btn" onclick="emit('REFRESH')" title="Refresh">
+      <svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+    </div>
+    <!-- Home -->
+    <div class="nav-btn" onclick="emit('HOME')" title="Google Home">
+      <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+    </div>
+
+    <!-- Capsule Omnibox -->
+    <div class="omnibox">
+      <div class="omnibox-lock">
+        <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+      </div>
+      <input type="text" id="omnibox-input" class="omnibox-input" placeholder="Search Google or type a URL" onkeydown="handleKey(event)">
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="action-btn" id="btn-translate" onclick="emit('TRANSLATE')" title="ترجمة الصفحة الحالية فورياً">
+      <svg viewBox="0 0 24 24"><path d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/></svg>
+      <span>ترجمة</span>
+    </div>
+
+    <div class="action-btn" onclick="emit('DOWNLOADS')" title="Downloads">
+      <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+      <span>التحميلات</span>
+    </div>
+
+    <div class="action-btn" onclick="emit('OPEN_HISTORY_TAB')" title="History">
+      <svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
+      <span>السجل</span>
+    </div>
+  </div>
+
+<script>
+  function emit(msg) {
+    if (window.chrome && window.chrome.webview) {
+      window.chrome.webview.postMessage(msg);
+    }
+  }
+
+  function handleKey(e) {
+    if (e.key === 'Enter') {
+      const val = document.getElementById('omnibox-input').value.trim();
+      if (val) {
+        emit('NAV:' + val);
+      }
+    }
+  }
+
+  window.renderTabs = function(tabsData, activeIdx) {
+    const wrapper = document.getElementById('tabs-wrapper');
+    wrapper.innerHTML = '';
+    tabsData.forEach((tab, i) => {
+      const tabEl = document.createElement('div');
+      tabEl.className = 'tab' + (i === activeIdx ? ' active' : '');
+      tabEl.onclick = (e) => {
+        if (!e.target.classList.contains('tab-close')) emit('TAB_SWITCH:' + i);
+      };
+
+      const favicon = document.createElement('img');
+      favicon.className = 'tab-favicon';
+      favicon.src = tab.favicon || 'https://www.google.com/favicon.ico';
+      favicon.onerror = () => { favicon.src = 'https://www.google.com/favicon.ico'; };
+
+      const title = document.createElement('div');
+      title.className = 'tab-title';
+      title.innerText = tab.title || 'Google';
+
+      const close = document.createElement('div');
+      close.className = 'tab-close';
+      close.innerHTML = '✕';
+      close.onclick = (e) => {
+        e.stopPropagation();
+        emit('TAB_CLOSE:' + i);
+      };
+
+      tabEl.appendChild(favicon);
+      tabEl.appendChild(title);
+      tabEl.appendChild(close);
+      wrapper.appendChild(tabEl);
+    });
+  };
+
+  window.setUrl = function(url) {
+    const input = document.getElementById('omnibox-input');
+    if (document.activeElement !== input) {
+      input.value = url;
+    }
+  };
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+# Build outputs
+*.res
+*.o
+*.log
+
+# Keep executable and dll if needed, or exclude:
+# Float.exe
