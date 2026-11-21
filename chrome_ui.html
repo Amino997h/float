@@ -280,7 +280,7 @@
 <body>
 
   <!-- Chrome Tabstrip -->
-  <div class="tabstrip">
+  <div class="tabstrip" id="tabstrip" onmousedown="handleStripDrag(event)" ondblclick="handleStripDblClick(event)">
     <div style="display:flex;align-items:center;padding:0 6px 4px 4px;-webkit-app-region:no-drag;">
       <img src="app.png" style="width:20px;height:20px;border-radius:4px;object-fit:cover;" alt="Float" title="Float Browser">
     </div>
@@ -290,6 +290,9 @@
     <div class="btn-new-tab" onclick="emit('TAB_NEW')" title="New tab">
       <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
     </div>
+
+    <!-- Draggable Spacer between new tab and window controls -->
+    <div style="flex-grow:1;height:100%;cursor:default;" onmousedown="emit('WIN_DRAG')" ondblclick="emit('WIN_MAX')"></div>
 
     <!-- Window Controls (Minimize, Maximize, Close) -->
     <div class="win-controls">
@@ -377,6 +380,18 @@
   function emit(msg) {
     if (window.chrome && window.chrome.webview) {
       window.chrome.webview.postMessage(msg);
+    }
+  }
+
+  function handleStripDrag(e) {
+    if (e.button === 0 && (e.target.id === 'tabstrip' || e.target.id === 'tabs-wrapper')) {
+      emit('WIN_DRAG');
+    }
+  }
+
+  function handleStripDblClick(e) {
+    if (e.target.id === 'tabstrip' || e.target.id === 'tabs-wrapper') {
+      emit('WIN_MAX');
     }
   }
 
