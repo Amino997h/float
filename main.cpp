@@ -434,6 +434,36 @@ public:
     }
 };
 
+class ContentNewWindowRequestedHandler : public ICoreWebView2NewWindowRequestedEventHandler {
+public:
+    LONG m_ref;
+    ContentNewWindowRequestedHandler() : m_ref(1) {}
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        *ppv = static_cast<ICoreWebView2NewWindowRequestedEventHandler*>(this);
+        AddRef();
+        return S_OK;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&m_ref); }
+    ULONG STDMETHODCALLTYPE Release() override {
+        ULONG count = InterlockedDecrement(&m_ref);
+        if (count == 0) delete this;
+        return count;
+    }
+    HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) override {
+        LPWSTR uri = nullptr;
+        if (SUCCEEDED(args->get_Uri(&uri)) && uri) {
+            std::wstring targetUrl = uri;
+            CoTaskMemFree(uri);
+            // Mark event as handled so WebView2 doesn't open a separate OS window
+            args->put_Handled(TRUE);
+            // Open in a new tab inside Float!
+            CreateNewTab(targetUrl);
+        }
+        return S_OK;
+    }
+};
+
 class CreateContentControllerHandler : public ICoreWebView2CreateCoreWebView2ControllerCompletedHandler {
 public:
     int tabIndex;
@@ -483,6 +513,10 @@ public:
             auto historyHandler = new ContentHistoryChangedHandler(tabIndex);
             g_tabs[tabIndex].webview->add_HistoryChanged(historyHandler, &token);
             historyHandler->Release();
+
+            auto newWinHandler = new ContentNewWindowRequestedHandler();
+            g_tabs[tabIndex].webview->add_NewWindowRequested(newWinHandler, &token);
+            newWinHandler->Release();
 
             RECT rc;
             GetClientRect(g_hWndContent, &rc);
