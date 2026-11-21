@@ -104,6 +104,11 @@ bool IsUrlBookmarked(const std::wstring& url);
 void ToggleBookmarkCurrentPage();
 std::wstring GenerateBookmarksJson();
 void BroadcastBookmarksToNewTabPages();
+void TrimWorkingSet();
+
+void TrimWorkingSet() {
+    SetProcessWorkingSetSize(GetCurrentProcess(), (SIZE_T)-1, (SIZE_T)-1);
+}
 
 std::wstring GetNewTabUrl() {
     wchar_t exePath[MAX_PATH];
@@ -524,12 +529,14 @@ void SwitchToTab(int index) {
     } else {
         SetWindowTextW(g_hWndMain, L"Float");
     }
+    TrimWorkingSet();
     SyncUi();
 }
 
 void CloseTab(int index) {
     if (g_tabs.size() <= 1) {
         NavigateTo(GetNewTabUrl());
+        TrimWorkingSet();
         return;
     }
     if (index < 0 || index >= (int)g_tabs.size()) return;
@@ -541,6 +548,7 @@ void CloseTab(int index) {
         g_activeTabIndex = (int)g_tabs.size() - 1;
     }
     SwitchToTab(g_activeTabIndex);
+    TrimWorkingSet();
 }
 
 void NavigateTo(const std::wstring& input) {
@@ -915,7 +923,7 @@ public:
                 settings = rawSettings;
                 rawSettings->Release();
                 settings->put_IsStatusBarEnabled(FALSE);
-                settings->put_AreDevToolsEnabled(TRUE);
+                settings->put_AreDevToolsEnabled(FALSE);
                 settings->put_AreDefaultContextMenusEnabled(TRUE);
             }
 
@@ -1253,6 +1261,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 int WINAPI WinMainActual(HINSTANCE hInstance, int nCmdShow) {
+    // 0. Ultra-Lightweight Chromium Engine Tuning (Minimal RAM, Shared Renderer, Low-End Mode)
+    SetEnvironmentVariableW(L"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", 
+        L"--renderer-process-limit=1 "
+        L"--enable-low-end-device-mode "
+        L"--disable-features=Translate,OptimizationHints,MediaRouter,CalculateNativeWinOcclusion,InterestFeedContentSuggestions "
+        L"--disable-background-networking "
+        L"--disable-component-update "
+        L"--disable-domain-reliability "
+        L"--js-flags=\"--max-old-space-size=128\""
+    );
+
     // 1. Full Per-Monitor DPI Awareness V2
     HMODULE hUser32 = GetModuleHandleW(L"user32.dll");
     if (hUser32) {
