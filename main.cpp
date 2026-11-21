@@ -719,6 +719,12 @@ public:
             } else if (msg.rfind(L"TAB_CLOSE:", 0) == 0) {
                 int idx = _wtoi(msg.substr(10).c_str());
                 CloseTab(idx);
+            } else if (msg.rfind(L"TAB_DUPLICATE:", 0) == 0) {
+                int idx = _wtoi(msg.substr(14).c_str());
+                if (idx >= 0 && idx < (int)g_tabs.size()) {
+                    std::wstring targetUrl = g_tabs[idx].url.empty() ? L"https://www.google.com" : g_tabs[idx].url;
+                    CreateNewTab(targetUrl);
+                }
             }
         }
         return S_OK;
