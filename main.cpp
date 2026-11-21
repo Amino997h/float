@@ -464,6 +464,95 @@ public:
     }
 };
 
+class OpenInNewTabCustomItemSelectedHandler : public ICoreWebView2CustomItemSelectedEventHandler {
+public:
+    std::wstring m_targetUrl;
+    LONG m_ref;
+    OpenInNewTabCustomItemSelectedHandler(const std::wstring& url) : m_targetUrl(url), m_ref(1) {}
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        *ppv = static_cast<ICoreWebView2CustomItemSelectedEventHandler*>(this);
+        AddRef();
+        return S_OK;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&m_ref); }
+    ULONG STDMETHODCALLTYPE Release() override {
+        ULONG count = InterlockedDecrement(&m_ref);
+        if (count == 0) delete this;
+        return count;
+    }
+    HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2ContextMenuItem*, IUnknown*) override {
+        if (!m_targetUrl.empty()) {
+            CreateNewTab(m_targetUrl);
+        }
+        return S_OK;
+    }
+};
+
+class ContentContextMenuRequestedHandler : public ICoreWebView2ContextMenuRequestedEventHandler {
+public:
+    LONG m_ref;
+    ContentContextMenuRequestedHandler() : m_ref(1) {}
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        *ppv = static_cast<ICoreWebView2ContextMenuRequestedEventHandler*>(this);
+        AddRef();
+        return S_OK;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&m_ref); }
+    ULONG STDMETHODCALLTYPE Release() override {
+        ULONG count = InterlockedDecrement(&m_ref);
+        if (count == 0) delete this;
+        return count;
+    }
+    HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2*, ICoreWebView2ContextMenuRequestedEventArgs* args) override {
+        SimpleComPtr<ICoreWebView2ContextMenuTarget> target;
+        ICoreWebView2ContextMenuTarget* rawTarget = nullptr;
+        if (SUCCEEDED(args->get_ContextMenuTarget(&rawTarget)) && rawTarget) {
+            target = rawTarget;
+            rawTarget->Release();
+
+            BOOL hasLink = FALSE;
+            target->get_HasLinkUri(&hasLink);
+            if (hasLink) {
+                LPWSTR linkUri = nullptr;
+                if (SUCCEEDED(target->get_LinkUri(&linkUri)) && linkUri) {
+                    std::wstring link(linkUri);
+                    CoTaskMemFree(linkUri);
+
+                    SimpleComPtr<ICoreWebView2Environment9> env9;
+                    if (g_webViewEnvironment && SUCCEEDED(g_webViewEnvironment->QueryInterface(IID_ICoreWebView2Environment9, (void**)env9.GetAddressOf()))) {
+                        SimpleComPtr<ICoreWebView2ContextMenuItem> menuItem;
+                        ICoreWebView2ContextMenuItem* rawItem = nullptr;
+                        if (SUCCEEDED(env9->CreateContextMenuItem(
+                            L"Open link in new tab",
+                            nullptr,
+                            COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_COMMAND,
+                            &rawItem)) && rawItem) {
+                            menuItem = rawItem;
+                            rawItem->Release();
+
+                            EventRegistrationToken itemToken;
+                            auto itemHandler = new OpenInNewTabCustomItemSelectedHandler(link);
+                            menuItem->add_CustomItemSelected(itemHandler, &itemToken);
+                            itemHandler->Release();
+
+                            SimpleComPtr<ICoreWebView2ContextMenuItemCollection> menuList;
+                            ICoreWebView2ContextMenuItemCollection* rawColl = nullptr;
+                            if (SUCCEEDED(args->get_MenuItems(&rawColl)) && rawColl) {
+                                menuList = rawColl;
+                                rawColl->Release();
+                                menuList->InsertValueAtIndex(0, menuItem.Get());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return S_OK;
+    }
+};
+
 class CreateContentControllerHandler : public ICoreWebView2CreateCoreWebView2ControllerCompletedHandler {
 public:
     int tabIndex;
@@ -517,6 +606,13 @@ public:
             auto newWinHandler = new ContentNewWindowRequestedHandler();
             g_tabs[tabIndex].webview->add_NewWindowRequested(newWinHandler, &token);
             newWinHandler->Release();
+
+            SimpleComPtr<ICoreWebView2_11> webview11;
+            if (SUCCEEDED(g_tabs[tabIndex].webview->QueryInterface(IID_ICoreWebView2_11, (void**)webview11.GetAddressOf()))) {
+                auto menuHandler = new ContentContextMenuRequestedHandler();
+                webview11->add_ContextMenuRequested(menuHandler, &token);
+                menuHandler->Release();
+            }
 
             RECT rc;
             GetClientRect(g_hWndContent, &rc);
