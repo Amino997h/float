@@ -401,6 +401,39 @@ public:
     }
 };
 
+class ContentHistoryChangedHandler : public ICoreWebView2HistoryChangedEventHandler {
+public:
+    int tabIndex;
+    LONG m_ref;
+    ContentHistoryChangedHandler(int idx) : tabIndex(idx), m_ref(1) {}
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        *ppv = static_cast<ICoreWebView2HistoryChangedEventHandler*>(this);
+        AddRef();
+        return S_OK;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&m_ref); }
+    ULONG STDMETHODCALLTYPE Release() override {
+        ULONG count = InterlockedDecrement(&m_ref);
+        if (count == 0) delete this;
+        return count;
+    }
+    HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2* sender, IUnknown*) override {
+        LPWSTR uri = nullptr;
+        if (SUCCEEDED(sender->get_Source(&uri)) && uri) {
+            if (tabIndex < (int)g_tabs.size()) {
+                g_tabs[tabIndex].url = uri;
+                if (tabIndex == g_activeTabIndex) {
+                    SyncUi();
+                }
+                LogHistory(uri);
+            }
+            CoTaskMemFree(uri);
+        }
+        return S_OK;
+    }
+};
+
 class CreateContentControllerHandler : public ICoreWebView2CreateCoreWebView2ControllerCompletedHandler {
 public:
     int tabIndex;
@@ -446,6 +479,10 @@ public:
             auto titleHandler = new ContentTitleChangedHandler(tabIndex);
             g_tabs[tabIndex].webview->add_DocumentTitleChanged(titleHandler, &token);
             titleHandler->Release();
+
+            auto historyHandler = new ContentHistoryChangedHandler(tabIndex);
+            g_tabs[tabIndex].webview->add_HistoryChanged(historyHandler, &token);
+            historyHandler->Release();
 
             RECT rc;
             GetClientRect(g_hWndContent, &rc);
