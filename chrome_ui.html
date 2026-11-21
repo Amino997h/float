@@ -250,6 +250,56 @@
     color: var(--text-primary);
   }
 
+  .omnibox-star {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #5f6368;
+    transition: background 0.15s, color 0.15s, transform 0.15s;
+    flex-shrink: 0;
+    margin-left: 4px;
+  }
+
+  .omnibox-star:hover {
+    background-color: rgba(32, 33, 36, 0.08);
+    color: #202124;
+  }
+
+  .omnibox-star svg {
+    width: 18px;
+    height: 18px;
+    fill: transparent;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linejoin: round;
+    transition: fill 0.2s, stroke 0.2s, transform 0.2s;
+  }
+
+  /* Active bookmark star state: Golden filled */
+  .omnibox-star.active {
+    color: #f59e0b;
+  }
+
+  .omnibox-star.active svg {
+    fill: #f59e0b;
+    stroke: #f59e0b;
+    animation: starPulse 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+
+  .omnibox-star.hidden {
+    display: none;
+  }
+
+  @keyframes starPulse {
+    0% { transform: scale(0.85); }
+    50% { transform: scale(1.3); }
+    100% { transform: scale(1); }
+  }
+
   .action-btn {
     display: flex;
     align-items: center;
@@ -320,7 +370,7 @@
       <svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
     </div>
     <!-- Home -->
-    <div class="nav-btn" onclick="emit('HOME')" title="Google Home">
+    <div class="nav-btn" onclick="emit('HOME')" title="الصفحة الرئيسية (Home)">
       <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
     </div>
 
@@ -330,6 +380,11 @@
         <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
       </div>
       <input type="text" id="omnibox-input" class="omnibox-input" placeholder="Search Google or type a URL" onkeydown="handleKey(event)">
+      <div class="omnibox-star" id="omnibox-star" onclick="toggleStar()" title="تثبيت هذه الصفحة في الرئيسية (Bookmark)">
+        <svg id="star-icon" viewBox="0 0 24 24">
+          <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
+        </svg>
+      </div>
     </div>
 
     <!-- Action Buttons -->
@@ -457,6 +512,39 @@
     const input = document.getElementById('omnibox-input');
     if (document.activeElement !== input) {
       input.value = url;
+    }
+  };
+
+  let isCurrentBookmarked = false;
+
+  function toggleStar() {
+    emit('TOGGLE_BOOKMARK');
+    // Optimistic toggle for instant visual feedback
+    isCurrentBookmarked = !isCurrentBookmarked;
+    setStarState(isCurrentBookmarked);
+  }
+
+  function setStarState(active) {
+    const starEl = document.getElementById('omnibox-star');
+    if (!starEl) return;
+    if (active) {
+      starEl.classList.add('active');
+      starEl.title = 'تم التثبيت في الرئيسية (انقر لإلغاء التثبيت)';
+    } else {
+      starEl.classList.remove('active');
+      starEl.title = 'تثبيت هذه الصفحة في الرئيسية (Bookmark)';
+    }
+  }
+
+  window.setBookmarked = function(bookmarked, canBookmark = true) {
+    isCurrentBookmarked = !!bookmarked;
+    const starEl = document.getElementById('omnibox-star');
+    if (!starEl) return;
+    if (!canBookmark) {
+      starEl.classList.add('hidden');
+    } else {
+      starEl.classList.remove('hidden');
+      setStarState(isCurrentBookmarked);
     }
   };
 </script>

@@ -62,6 +62,12 @@ struct TabInfo {
     SimpleComPtr<ICoreWebView2> webview;
 };
 
+struct BookmarkItem {
+    std::wstring title;
+    std::wstring url;
+    std::wstring favicon;
+};
+
 // Global Handles
 HINSTANCE g_hInstance = NULL;
 HWND g_hWndMain = NULL;
@@ -75,12 +81,15 @@ SimpleComPtr<ICoreWebView2> g_topBarWebview;
 std::vector<TabInfo> g_tabs;
 int g_activeTabIndex = -1;
 bool g_topBarLoaded = false;
+std::vector<BookmarkItem> g_bookmarks;
 
 #define TOPBAR_HEIGHT 108
 #define BORDER_PADDING 0
 
 // Forward declarations
-void CreateNewTab(const std::wstring& initialUrl = L"https://www.google.com");
+std::wstring GetNewTabUrl();
+std::wstring GetHistoryUrl();
+void CreateNewTab(const std::wstring& initialUrl = L"");
 void SwitchToTab(int index);
 void CloseTab(int index);
 void NavigateTo(const std::wstring& input);
@@ -89,6 +98,202 @@ void ShowHistoryDialog();
 void ShowDownloadsDialog();
 void LogHistory(const std::wstring& url);
 void SyncUi();
+void LoadBookmarks();
+void SaveBookmarks();
+bool IsUrlBookmarked(const std::wstring& url);
+void ToggleBookmarkCurrentPage();
+std::wstring GenerateBookmarksJson();
+void BroadcastBookmarksToNewTabPages();
+
+std::wstring GetNewTabUrl() {
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(NULL, exePath, MAX_PATH);
+    std::wstring dir = exePath;
+    size_t lastSlash = dir.find_last_of(L"\\/");
+    if (lastSlash != std::wstring::npos) dir = dir.substr(0, lastSlash);
+    std::wstring newTabUrl = std::wstring(L"file:///") + dir + L"\\newtab.html";
+    for (auto& ch : newTabUrl) { if (ch == L'\\') ch = L'/'; }
+    return newTabUrl;
+}
+
+std::wstring GetHistoryUrl() {
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(NULL, exePath, MAX_PATH);
+    std::wstring dir = exePath;
+    size_t lastSlash = dir.find_last_of(L"\\/");
+    if (lastSlash != std::wstring::npos) dir = dir.substr(0, lastSlash);
+    std::wstring histUrl = std::wstring(L"file:///") + dir + L"\\history.html";
+    for (auto& ch : histUrl) { if (ch == L'\\') ch = L'/'; }
+    return histUrl;
+}
+
+std::wstring GetBookmarksPath() {
+    wchar_t appData[MAX_PATH];
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, appData))) {
+        return std::wstring(appData) + L"\\FloatBrowser_bookmarks.json";
+    }
+    return L"";
+}
+
+void SaveBookmarks() {
+    std::wstring path = GetBookmarksPath();
+    if (path.empty()) return;
+    std::wstringstream ss;
+    ss << L"[\n";
+    for (size_t i = 0; i < g_bookmarks.size(); ++i) {
+        if (i > 0) ss << L",\n";
+        std::wstring title = g_bookmarks[i].title;
+        std::wstring url = g_bookmarks[i].url;
+        std::wstring fav = g_bookmarks[i].favicon;
+        for (size_t p = 0; (p = title.find(L'"', p)) != std::wstring::npos; p += 2) title.replace(p, 1, L"\\\"");
+        for (size_t p = 0; (p = url.find(L'"', p)) != std::wstring::npos; p += 2) url.replace(p, 1, L"\\\"");
+        for (size_t p = 0; (p = fav.find(L'"', p)) != std::wstring::npos; p += 2) fav.replace(p, 1, L"\\\"");
+        ss << L"  {\"title\":\"" << title << L"\",\"url\":\"" << url << L"\",\"favicon\":\"" << fav << L"\"}";
+    }
+    ss << L"\n]";
+    FILE* f = NULL;
+    _wfopen_s(&f, path.c_str(), L"w, ccs=UTF-8");
+    if (f) {
+        fputws(ss.str().c_str(), f);
+        fclose(f);
+    }
+}
+
+void LoadBookmarks() {
+    g_bookmarks.clear();
+    std::wstring path = GetBookmarksPath();
+    if (!path.empty()) {
+        FILE* f = NULL;
+        _wfopen_s(&f, path.c_str(), L"r, ccs=UTF-8");
+        if (f) {
+            std::wstring content;
+            wchar_t buf[2048];
+            while (fgetws(buf, 2048, f)) {
+                content += buf;
+            }
+            fclose(f);
+
+            size_t pos = 0;
+            while ((pos = content.find(L'{', pos)) != std::wstring::npos) {
+                size_t endObj = content.find(L'}', pos);
+                if (endObj == std::wstring::npos) break;
+                std::wstring obj = content.substr(pos, endObj - pos + 1);
+
+                auto extractKey = [&](const std::wstring& key) -> std::wstring {
+                    std::wstring pattern = L"\"" + key + L"\"";
+                    size_t kp = obj.find(pattern);
+                    if (kp == std::wstring::npos) return L"";
+                    size_t colon = obj.find(L':', kp + pattern.length());
+                    if (colon == std::wstring::npos) return L"";
+                    size_t q1 = obj.find(L'"', colon + 1);
+                    if (q1 == std::wstring::npos) return L"";
+                    size_t q2 = obj.find(L'"', q1 + 1);
+                    while (q2 != std::wstring::npos && obj[q2 - 1] == L'\\') {
+                        q2 = obj.find(L'"', q2 + 1);
+                    }
+                    if (q2 == std::wstring::npos) return L"";
+                    std::wstring val = obj.substr(q1 + 1, q2 - q1 - 1);
+                    for (size_t p = 0; (p = val.find(L"\\\"", p)) != std::wstring::npos; ) {
+                        val.replace(p, 2, L"\"");
+                        p += 1;
+                    }
+                    return val;
+                };
+
+                BookmarkItem item;
+                item.title = extractKey(L"title");
+                item.url = extractKey(L"url");
+                item.favicon = extractKey(L"favicon");
+                if (!item.url.empty()) {
+                    g_bookmarks.push_back(item);
+                }
+                pos = endObj + 1;
+            }
+        }
+    }
+
+    if (g_bookmarks.empty()) {
+        g_bookmarks.push_back({L"Google", L"https://www.google.com", L"https://www.google.com/favicon.ico"});
+        g_bookmarks.push_back({L"YouTube", L"https://www.youtube.com", L"https://www.youtube.com/favicon.ico"});
+        g_bookmarks.push_back({L"GitHub", L"https://github.com", L"https://github.com/favicon.ico"});
+        g_bookmarks.push_back({L"Twitter / X", L"https://x.com", L"https://abs.twimg.com/favicons/twitter.3.ico"});
+        g_bookmarks.push_back({L"Wikipedia", L"https://www.wikipedia.org", L"https://www.wikipedia.org/static/favicon/wikipedia.ico"});
+        SaveBookmarks();
+    }
+}
+
+bool IsUrlBookmarked(const std::wstring& url) {
+    if (url.empty() || url.find(L"newtab.html") != std::wstring::npos || url.find(L"history.html") != std::wstring::npos) return false;
+    std::wstring u1 = url;
+    while (!u1.empty() && u1.back() == L'/') u1.pop_back();
+
+    for (const auto& bm : g_bookmarks) {
+        std::wstring u2 = bm.url;
+        while (!u2.empty() && u2.back() == L'/') u2.pop_back();
+        if (_wcsicmp(u1.c_str(), u2.c_str()) == 0) return true;
+    }
+    return false;
+}
+
+std::wstring GenerateBookmarksJson() {
+    std::wstringstream js;
+    js << L"[";
+    for (size_t i = 0; i < g_bookmarks.size(); ++i) {
+        if (i > 0) js << L",";
+        std::wstring title = g_bookmarks[i].title;
+        std::wstring url = g_bookmarks[i].url;
+        std::wstring fav = g_bookmarks[i].favicon;
+        for (size_t p = 0; (p = title.find(L'"', p)) != std::wstring::npos; p += 2) title.replace(p, 1, L"\\\"");
+        for (size_t p = 0; (p = url.find(L'"', p)) != std::wstring::npos; p += 2) url.replace(p, 1, L"\\\"");
+        for (size_t p = 0; (p = fav.find(L'"', p)) != std::wstring::npos; p += 2) fav.replace(p, 1, L"\\\"");
+        js << L"{\"title\":\"" << title << L"\",\"url\":\"" << url << L"\",\"favicon\":\"" << fav << L"\"}";
+    }
+    js << L"]";
+    return js.str();
+}
+
+void BroadcastBookmarksToNewTabPages() {
+    std::wstring jsonStr = GenerateBookmarksJson();
+    std::wstring script = L"if (window.loadBookmarksData) { window.loadBookmarksData(" + jsonStr + L"); }";
+    for (auto& tab : g_tabs) {
+        if (tab.webview && tab.url.find(L"newtab.html") != std::wstring::npos) {
+            tab.webview->ExecuteScript(script.c_str(), nullptr);
+        }
+    }
+}
+
+void ToggleBookmarkCurrentPage() {
+    if (g_activeTabIndex < 0 || g_activeTabIndex >= (int)g_tabs.size()) return;
+    auto& tab = g_tabs[g_activeTabIndex];
+    if (tab.url.empty() || tab.url.find(L"newtab.html") != std::wstring::npos || tab.url.find(L"history.html") != std::wstring::npos) return;
+
+    std::wstring curUrl = tab.url;
+    std::wstring u1 = curUrl;
+    while (!u1.empty() && u1.back() == L'/') u1.pop_back();
+
+    bool found = false;
+    for (auto it = g_bookmarks.begin(); it != g_bookmarks.end(); ++it) {
+        std::wstring u2 = it->url;
+        while (!u2.empty() && u2.back() == L'/') u2.pop_back();
+        if (_wcsicmp(u1.c_str(), u2.c_str()) == 0) {
+            g_bookmarks.erase(it);
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) {
+        BookmarkItem item;
+        item.title = tab.title.empty() ? L"موقع" : tab.title;
+        item.url = curUrl;
+        item.favicon = tab.favicon;
+        g_bookmarks.push_back(item);
+    }
+
+    SaveBookmarks();
+    BroadcastBookmarksToNewTabPages();
+    SyncUi();
+}
 
 bool IsValidUrl(const std::wstring& str) {
     if (str.rfind(L"http://", 0) == 0 || str.rfind(L"https://", 0) == 0 || str.rfind(L"file://", 0) == 0) return true;
@@ -98,7 +303,12 @@ bool IsValidUrl(const std::wstring& str) {
 }
 
 std::wstring PrepareUrl(const std::wstring& input) {
-    if (input.empty()) return L"https://www.google.com";
+    if (input.empty() || input == L"float://newtab" || input == L"about:newtab" || input == L"newtab") {
+        return GetNewTabUrl();
+    }
+    if (input == L"float://history" || input == L"about:history" || input == L"history") {
+        return GetHistoryUrl();
+    }
     if (IsValidUrl(input)) {
         if (input.rfind(L"http://", 0) != 0 && input.rfind(L"https://", 0) != 0 && input.rfind(L"file://", 0) != 0) {
             return L"https://" + input;
@@ -177,8 +387,17 @@ void InjectHistoryDataIfHistoryTab(int tabIndex) {
     tab.webview->ExecuteScript(js.str().c_str(), nullptr);
 }
 
+void InjectBookmarksIfNewTab(int tabIndex) {
+    if (tabIndex < 0 || tabIndex >= (int)g_tabs.size()) return;
+    auto& tab = g_tabs[tabIndex];
+    if (tab.url.find(L"newtab.html") == std::wstring::npos || !tab.webview) return;
+    std::wstring jsonStr = GenerateBookmarksJson();
+    std::wstring script = L"if (window.loadBookmarksData) { window.loadBookmarksData(" + jsonStr + L"); }";
+    tab.webview->ExecuteScript(script.c_str(), nullptr);
+}
+
 void LogHistory(const std::wstring& url) {
-    if (url.empty() || url == L"about:blank" || url.find(L"history.html") != std::wstring::npos) return;
+    if (url.empty() || url == L"about:blank" || url.find(L"history.html") != std::wstring::npos || url.find(L"newtab.html") != std::wstring::npos) return;
     wchar_t appData[MAX_PATH];
     if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, appData))) {
         std::wstring historyPath = std::wstring(appData) + L"\\FloatBrowser_history.txt";
@@ -253,7 +472,7 @@ void SyncUi() {
     js << L"if (window.renderTabs) { window.renderTabs([";
     for (size_t i = 0; i < g_tabs.size(); ++i) {
         if (i > 0) js << L",";
-        std::wstring title = g_tabs[i].title.empty() ? L"Google" : g_tabs[i].title;
+        std::wstring title = g_tabs[i].title.empty() ? L"علامة تبويب جديدة" : g_tabs[i].title;
         // Escape quotes
         for (size_t p = 0; (p = title.find(L'"', p)) != std::wstring::npos; p += 2) {
             title.replace(p, 1, L"\\\"");
@@ -265,10 +484,21 @@ void SyncUi() {
 
     if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size()) {
         std::wstring url = g_tabs[g_activeTabIndex].url;
-        for (size_t p = 0; (p = url.find(L'"', p)) != std::wstring::npos; p += 2) {
-            url.replace(p, 1, L"\\\"");
+        bool isNewTab = (url.find(L"newtab.html") != std::wstring::npos);
+        bool isHistory = (url.find(L"history.html") != std::wstring::npos);
+
+        // Keep omnibox empty with placeholder on new tab (just like Chrome)
+        std::wstring displayUrl = isNewTab ? L"" : url;
+        for (size_t p = 0; (p = displayUrl.find(L'"', p)) != std::wstring::npos; p += 2) {
+            displayUrl.replace(p, 1, L"\\\"");
         }
-        js << L"if (window.setUrl) { window.setUrl(\"" << url << L"\"); }";
+        js << L"if (window.setUrl) { window.setUrl(\"" << displayUrl << L"\"); }";
+
+        bool canBookmark = (!isNewTab && !isHistory && !url.empty() && url != L"about:blank");
+        bool bookmarked = canBookmark && IsUrlBookmarked(url);
+        js << L"if (window.setBookmarked) { window.setBookmarked(" 
+           << (bookmarked ? L"true" : L"false") << L"," 
+           << (canBookmark ? L"true" : L"false") << L"); }";
     }
 
     g_topBarWebview->ExecuteScript(js.str().c_str(), nullptr);
@@ -299,7 +529,7 @@ void SwitchToTab(int index) {
 
 void CloseTab(int index) {
     if (g_tabs.size() <= 1) {
-        NavigateTo(L"https://www.google.com");
+        NavigateTo(GetNewTabUrl());
         return;
     }
     if (index < 0 || index >= (int)g_tabs.size()) return;
@@ -349,18 +579,27 @@ public:
         if (SUCCEEDED(sender->get_Source(&uri)) && uri) {
             if (tabIndex < (int)g_tabs.size()) {
                 g_tabs[tabIndex].url = uri;
-                // Generate favicon url from host
-                std::wstring u = uri;
-                size_t p = u.find(L"://");
-                if (p != std::wstring::npos) {
-                    size_t slash = u.find(L'/', p + 3);
-                    std::wstring host = (slash == std::wstring::npos) ? u : u.substr(0, slash);
-                    g_tabs[tabIndex].favicon = host + L"/favicon.ico";
+                if (g_tabs[tabIndex].url.find(L"newtab.html") != std::wstring::npos) {
+                    g_tabs[tabIndex].favicon = L"app.png";
+                    g_tabs[tabIndex].title = L"علامة تبويب جديدة";
+                    InjectBookmarksIfNewTab(tabIndex);
+                } else if (g_tabs[tabIndex].url.find(L"history.html") != std::wstring::npos) {
+                    g_tabs[tabIndex].favicon = L"app.png";
+                    g_tabs[tabIndex].title = L"سجل التصفح";
+                    InjectHistoryDataIfHistoryTab(tabIndex);
+                } else {
+                    // Generate favicon url from host
+                    std::wstring u = uri;
+                    size_t p = u.find(L"://");
+                    if (p != std::wstring::npos) {
+                        size_t slash = u.find(L'/', p + 3);
+                        std::wstring host = (slash == std::wstring::npos) ? u : u.substr(0, slash);
+                        g_tabs[tabIndex].favicon = host + L"/favicon.ico";
+                    }
                 }
                 if (tabIndex == g_activeTabIndex) {
                     SyncUi();
                 }
-                InjectHistoryDataIfHistoryTab(tabIndex);
             }
             CoTaskMemFree(uri);
         }
@@ -389,9 +628,15 @@ public:
         LPWSTR title = nullptr;
         if (SUCCEEDED(sender->get_DocumentTitle(&title)) && title) {
             if (tabIndex < (int)g_tabs.size()) {
-                g_tabs[tabIndex].title = title;
+                if (g_tabs[tabIndex].url.find(L"newtab.html") != std::wstring::npos) {
+                    g_tabs[tabIndex].title = L"علامة تبويب جديدة";
+                } else if (g_tabs[tabIndex].url.find(L"history.html") != std::wstring::npos) {
+                    g_tabs[tabIndex].title = L"سجل التصفح";
+                } else {
+                    g_tabs[tabIndex].title = title;
+                }
                 if (tabIndex == g_activeTabIndex) {
-                    SetWindowTextW(g_hWndMain, (std::wstring(title) + L" - Float").c_str());
+                    SetWindowTextW(g_hWndMain, (g_tabs[tabIndex].title + L" - Float").c_str());
                 }
                 SyncUi();
             }
@@ -553,6 +798,90 @@ public:
     }
 };
 
+class ContentWebMessageHandler : public ICoreWebView2WebMessageReceivedEventHandler {
+public:
+    LONG m_ref;
+    ContentWebMessageHandler() : m_ref(1) {}
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        *ppv = static_cast<ICoreWebView2WebMessageReceivedEventHandler*>(this);
+        AddRef();
+        return S_OK;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&m_ref); }
+    ULONG STDMETHODCALLTYPE Release() override {
+        ULONG count = InterlockedDecrement(&m_ref);
+        if (count == 0) delete this;
+        return count;
+    }
+    HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2* sender, ICoreWebView2WebMessageReceivedEventArgs* args) override {
+        LPWSTR rawMsg = nullptr;
+        if (SUCCEEDED(args->TryGetWebMessageAsString(&rawMsg)) && rawMsg) {
+            std::wstring msg = rawMsg;
+            CoTaskMemFree(rawMsg);
+
+            if (msg.rfind(L"NAV:", 0) == 0) {
+                std::wstring url = msg.substr(4);
+                std::wstring target = PrepareUrl(url);
+                sender->Navigate(target.c_str());
+                LogHistory(target);
+            } else if (msg == L"GET_BOOKMARKS") {
+                std::wstring jsonStr = GenerateBookmarksJson();
+                std::wstring script = L"if (window.loadBookmarksData) { window.loadBookmarksData(" + jsonStr + L"); }";
+                sender->ExecuteScript(script.c_str(), nullptr);
+            } else if (msg.rfind(L"REMOVE_BOOKMARK:", 0) == 0) {
+                std::wstring remUrl = msg.substr(16);
+                std::wstring u1 = remUrl;
+                while (!u1.empty() && u1.back() == L'/') u1.pop_back();
+                for (auto it = g_bookmarks.begin(); it != g_bookmarks.end(); ++it) {
+                    std::wstring u2 = it->url;
+                    while (!u2.empty() && u2.back() == L'/') u2.pop_back();
+                    if (_wcsicmp(u1.c_str(), u2.c_str()) == 0) {
+                        g_bookmarks.erase(it);
+                        break;
+                    }
+                }
+                SaveBookmarks();
+                BroadcastBookmarksToNewTabPages();
+                SyncUi();
+            } else if (msg.rfind(L"ADD_BOOKMARK:", 0) == 0) {
+                std::wstring json = msg.substr(13);
+                auto extractKey = [&](const std::wstring& key) -> std::wstring {
+                    std::wstring pattern = L"\"" + key + L"\"";
+                    size_t kp = json.find(pattern);
+                    if (kp == std::wstring::npos) return L"";
+                    size_t colon = json.find(L':', kp + pattern.length());
+                    if (colon == std::wstring::npos) return L"";
+                    size_t q1 = json.find(L'"', colon + 1);
+                    if (q1 == std::wstring::npos) return L"";
+                    size_t q2 = json.find(L'"', q1 + 1);
+                    while (q2 != std::wstring::npos && json[q2 - 1] == L'\\') {
+                        q2 = json.find(L'"', q2 + 1);
+                    }
+                    if (q2 == std::wstring::npos) return L"";
+                    std::wstring val = json.substr(q1 + 1, q2 - q1 - 1);
+                    for (size_t p = 0; (p = val.find(L"\\\"", p)) != std::wstring::npos; ) {
+                        val.replace(p, 2, L"\"");
+                        p += 1;
+                    }
+                    return val;
+                };
+                BookmarkItem item;
+                item.title = extractKey(L"title");
+                item.url = extractKey(L"url");
+                item.favicon = extractKey(L"favicon");
+                if (!item.url.empty()) {
+                    g_bookmarks.push_back(item);
+                    SaveBookmarks();
+                    BroadcastBookmarksToNewTabPages();
+                    SyncUi();
+                }
+            }
+        }
+        return S_OK;
+    }
+};
+
 class CreateContentControllerHandler : public ICoreWebView2CreateCoreWebView2ControllerCompletedHandler {
 public:
     int tabIndex;
@@ -607,6 +936,10 @@ public:
             g_tabs[tabIndex].webview->add_NewWindowRequested(newWinHandler, &token);
             newWinHandler->Release();
 
+            auto contentMsgHandler = new ContentWebMessageHandler();
+            g_tabs[tabIndex].webview->add_WebMessageReceived(contentMsgHandler, &token);
+            contentMsgHandler->Release();
+
             SimpleComPtr<ICoreWebView2_11> webview11;
             if (SUCCEEDED(g_tabs[tabIndex].webview->QueryInterface(IID_ICoreWebView2_11, (void**)webview11.GetAddressOf()))) {
                 auto menuHandler = new ContentContextMenuRequestedHandler();
@@ -631,15 +964,16 @@ public:
 };
 
 void CreateNewTab(const std::wstring& initialUrl) {
+    std::wstring urlToOpen = initialUrl.empty() ? GetNewTabUrl() : initialUrl;
     TabInfo info;
-    info.title = L"Google";
-    info.url = initialUrl;
-    info.favicon = L"https://www.google.com/favicon.ico";
+    info.title = (urlToOpen.find(L"newtab.html") != std::wstring::npos) ? L"علامة تبويب جديدة" : L"Google";
+    info.url = urlToOpen;
+    info.favicon = (urlToOpen.find(L"newtab.html") != std::wstring::npos) ? L"app.png" : L"https://www.google.com/favicon.ico";
     g_tabs.push_back(info);
     int newIndex = (int)g_tabs.size() - 1;
 
     if (g_webViewEnvironment && g_hWndContent) {
-        auto handler = new CreateContentControllerHandler(newIndex, initialUrl);
+        auto handler = new CreateContentControllerHandler(newIndex, urlToOpen);
         g_webViewEnvironment->CreateCoreWebView2Controller(g_hWndContent, handler);
     }
     SwitchToTab(newIndex);
@@ -678,9 +1012,11 @@ public:
             } else if (msg == L"REFRESH") {
                 if (g_activeTabIndex >= 0 && g_tabs[g_activeTabIndex].webview) g_tabs[g_activeTabIndex].webview->Reload();
             } else if (msg == L"HOME") {
-                NavigateTo(L"https://www.google.com");
+                NavigateTo(GetNewTabUrl());
             } else if (msg == L"TAB_NEW") {
-                CreateNewTab(L"https://www.google.com");
+                CreateNewTab(GetNewTabUrl());
+            } else if (msg == L"TOGGLE_BOOKMARK") {
+                ToggleBookmarkCurrentPage();
             } else if (msg == L"TRANSLATE") {
                 TranslateCurrentPage();
             } else if (msg == L"DOWNLOADS") {
@@ -815,8 +1151,8 @@ public:
         
         g_topBarWebview->Navigate(htmlPath.c_str());
 
-        // Now create initial Google tab!
-        CreateNewTab(L"https://www.google.com");
+        // Now create initial Float New Tab!
+        CreateNewTab(GetNewTabUrl());
         return S_OK;
     }
 };
@@ -928,6 +1264,7 @@ int WINAPI WinMainActual(HINSTANCE hInstance, int nCmdShow) {
 
     g_hInstance = hInstance;
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    LoadBookmarks();
 
     WNDCLASSEXW wc = {0};
     wc.cbSize = sizeof(WNDCLASSEXW);
