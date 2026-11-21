@@ -1057,6 +1057,9 @@ public:
                 else ShowWindow(g_hWndMain, SW_MAXIMIZE);
             } else if (msg == L"WIN_CLOSE") {
                 PostMessageW(g_hWndMain, WM_CLOSE, 0, 0);
+            } else if (msg == L"WIN_DRAG") {
+                ReleaseCapture();
+                SendMessageW(g_hWndMain, WM_NCLBUTTONDOWN, HTCAPTION, 0);
             } else if (msg.rfind(L"TAB_SWITCH:", 0) == 0) {
                 int idx = _wtoi(msg.substr(11).c_str());
                 SwitchToTab(idx);
@@ -1208,9 +1211,41 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_NCCALCSIZE:
-        // Removes standard window titlebar completely
-        if (wParam == TRUE) return 0;
-        break;
+        // Removes standard native titlebar completely in both maximized and windowed mode
+        return 0;
+
+    case WM_NCACTIVATE:
+        // Prevents Windows DWM from repainting the native caption on focus changes
+        return 1;
+
+    case WM_NCPAINT:
+        // Suppress native titlebar painting
+        return 0;
+
+    case WM_NCHITTEST: {
+        if (IsZoomed(hWnd)) return HTCLIENT;
+
+        POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
+        RECT rc;
+        GetWindowRect(hWnd, &rc);
+
+        const int b = 6;
+        bool left   = (pt.x >= rc.left && pt.x < rc.left + b);
+        bool right  = (pt.x < rc.right && pt.x >= rc.right - b);
+        bool top    = (pt.y >= rc.top && pt.y < rc.top + b);
+        bool bottom = (pt.y < rc.bottom && pt.y >= rc.bottom - b);
+
+        if (top && left) return HTTOPLEFT;
+        if (top && right) return HTTOPRIGHT;
+        if (bottom && left) return HTBOTTOMLEFT;
+        if (bottom && right) return HTBOTTOMRIGHT;
+        if (left) return HTLEFT;
+        if (right) return HTRIGHT;
+        if (top) return HTTOP;
+        if (bottom) return HTBOTTOM;
+
+        return HTCLIENT;
+    }
 
     case WM_SIZE: {
         int width = LOWORD(lParam);
@@ -1312,9 +1347,16 @@ int WINAPI WinMainActual(HINSTANCE hInstance, int nCmdShow) {
     if (hBigIcon) SendMessageW(g_hWndMain, WM_SETICON, ICON_BIG, (LPARAM)hBigIcon);
     if (hSmallIcon) SendMessageW(g_hWndMain, WM_SETICON, ICON_SMALL, (LPARAM)hSmallIcon);
 
-    // Apply DWM Shadow
+    // Apply DWM Shadow and Windows 11 rounded corners (Edge/Chrome style)
     MARGINS margins = {1, 1, 1, 1};
     DwmExtendFrameIntoClientArea(g_hWndMain, &margins);
+
+    DWORD cornerPref = 2; // DWMWCP_ROUND (Windows 11 modern rounded corners)
+    DwmSetWindowAttribute(g_hWndMain, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &cornerPref, sizeof(cornerPref));
+
+    // Force Windows DWM to recalculate non-client area without standard titlebar
+    SetWindowPos(g_hWndMain, NULL, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
 
     // TopBar Child Window (WS_CLIPSIBLINGS so it paints cleanly)
     g_hWndTopBar = CreateWindowExW(
